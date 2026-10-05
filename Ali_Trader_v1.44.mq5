@@ -12,7 +12,7 @@
 //|   6) تذبذب: فلتر ATR + ستوب وأهداف تلقائية بالـ ATR              |
 //|   7) احترافي: مناطق MTF + خطوط سيولة + Premium/Discount          |
 //|      + فلتر الأخبار الحمراء + فيبو ذهبي + إدارة صفقة + إحصائيات  |
-//|   8) علي ماستر v6: شرط اختراق 3 شموع + خطوط ENTRY/TP1/TP2/SL     |
+//|   8) علي ماستر v6: شرط اختراق 3 شموع + خطوط ENTRY/TP1..TP3/SL    |
 //|      بامتداد يميني + مناطق سيولة 4H بقوة الحجم                   |
 //|                                                                  |
 //|  وضع هجين (Hybrid): إشارة لحظية أثناء تكوّن الشمعة، تتحول         |
@@ -40,6 +40,8 @@
 //|      + فلتر أخبار تاريخي + تحقق مدخلات + تنظيف كود ميت          |
 //|     8) v1.43+: تعزيزات ذكاء: DXY عكسي + دايفرجنس RSI + ADX|
 //|        + سحب النطاق الآسيوي + سقف درجة ديناميكي + صفوف لوحة|
+//|     9) v1.44: حماية الانعكاس (انتظار قبل الإشارة المعاكسة)   |
+//|        + الدخول من المنطقة الذهبية إلزامي + هدف ثالث TP3      |
 //|                                                                  |
 //|  إعدادات مقترحة:                                                 |
 //|   - سكالبينج M1-M5 : MinScore=6 ، FVGMinPts=15-20 ،              |
@@ -61,11 +63,11 @@
 //+------------------------------------------------------------------+
 #property copyright   "Ali Trader - نظام إشارات الذهب الهجين"
 #property link        ""
-#property version     "1.43"
+#property version     "1.44"
 #property description "مؤشر دخول ذهب هجين: SMC + سيولة + اتجاه + حجم + جلسات"
 #property description "وضع هجين: إشارة لحظية تتحول لمؤكدة بعد الإغلاق (Non-Repaint)"
 #property description "مدمج: استراتيجية علي ماستر v6 (خطوط صفقة + سيولة 4H - بلا أسهم)"
-#property description "Ali Trader v1.43: تخفيف ألوان الشارت + تنبيهات + تعزيزات ذكاء"
+#property description "Ali Trader v1.44: منع الانعكاس السريع (انتظار 10 دقائق) + الدخول الذهبي + TP3"
 #property description "v1.43: إصلاح سيولة 4H التاريخية + تنبيهات + فلتر أخبار موسع + تحقق مدخلات"
 #property description "v1.43+: فلتر الدولار DXY + دايفرجنس RSI + ADX + سحب آسيا"
 #property indicator_chart_window
@@ -151,6 +153,7 @@ input group "=== إدارة الصفقة (ATR) ==="
 input double          InpSL_ATR      = 1.6;             // مسافة الستوب = ATR ×
 input double          InpTP1_R       = 1.0;             // الهدف الأول (مضاعف المخاطرة R)
 input double          InpTP2_R       = 2.0;             // الهدف الثاني (مضاعف المخاطرة R)
+input double          InpTP3_R       = 3.0;             // الهدف الثالث (مضاعف المخاطرة R) - v1.44
 input int             InpLineLen     = 100;             // طول خطوط الدخول/الأهداف (شموع مثل extendBars)
 input int             InpMaxLines    = 5;               // عدد آخر الصفقات المرسومة
 
@@ -186,6 +189,7 @@ input bool           InpAliUseATR = true;           // استخدام ATR للس
 input int            InpAliAtrLen = 14;             // فترة ATR الخاصة بالاستراتيجية
 input double         InpAliTP1Pts = 1000;           // هدف أول عند تعطيل ATR = 10 دولار (1000 نقطة)
 input double         InpAliTP2Pts = 2000;           // هدف ثاني عند تعطيل ATR = 20 دولار (2000 نقطة)
+input double         InpAliTP3Pts = 3000;           // هدف ثالث عند تعطيل ATR = 30 دولار (3000 نقطة) - v1.44
 input double         InpAliSLPts  = 1000;           // ستوب عند تعطيل ATR = 10 دولار (1000 نقطة)
 input int            InpAliExt    = 100;            // امتداد الخطوط يميناً (شموع) مثل TradingView = 100
 input int            InpAliWidth  = 2;              // سماكة خطوط الصفقة (1-5)
@@ -229,6 +233,10 @@ input bool            InpUseAsia    = true;    // سحب النطاق الآسي
 input int             InpAsiaStart  = 2;       // بداية جلسة آسيا (توقيت السيرفر)
 input int             InpAsiaEnd    = 9;       // نهاية جلسة آسيا (يجب أن تكون أكبر من البداية)
 
+input group "=== حماية الانعكاس والدخول الذهبي (v1.44) ==="
+input int             InpRevWaitMin  = 10;     // انتظار قبل الإشارة المعاكسة (دقائق - 0 = تعطيل)
+input bool            InpGoldenEntry = true;   // الدخول من المنطقة الذهبية فقط (فيبو 0.5-0.618)
+
 //+------------------------------------------------------------------+
 //| المتغيرات العامة                                                 |
 //+------------------------------------------------------------------+
@@ -238,8 +246,8 @@ input int             InpAsiaEnd    = 9;       // نهاية جلسة آسيا (
 string   gPrefix = "";                        // تتولد فريدة في OnInit مرة واحدة
 #define PREFIX   gPrefix
 #define ALI_VER_MAJOR 1                       // v1.43: مقارنة إصدار عامة لتنظيف النسخ القديمة
-#define ALI_VER_MINOR 43
-#define ALI_TITLE "Ali Trader v1.43"          // v1.43: اسم المؤشر (اللوحة + Shortname + الرسائل)
+#define ALI_VER_MINOR 44
+#define ALI_TITLE "Ali Trader v1.44"          // v1.44: اسم المؤشر (اللوحة + Shortname + الرسائل)
 #define MAXZ     80
 #define MAXMZ    40
 #define MAXLQ    24
@@ -295,18 +303,22 @@ int      gTsUse = -1;                  // كاش حالة الاتجاه (يُص
 int      gTsSt  = 0;
 datetime gLastAlertMain = 0;           // منع تكرار التنبيه لنفس الشمعة
 datetime gLastAlertAli = 0;
+datetime gLastSigT = 0;                // v1.44: وقت آخر إشارة مؤكدة (المحرك الرئيسي) - منع الانعكاس
+int      gLastSigDir = 0;              // v1.44: اتجاه آخر إشارة مؤكدة (المحرك الرئيسي)
+datetime gAliLastSigT = 0;             // v1.44: وقت آخر إشارة علي - منع الانعكاس
+int      gAliLastSigDir = 0;           // v1.44: اتجاه آخر إشارة علي
 int      gScoreMax = 10;               // v1.43+: سقف الدرجة حسب الميزات المفعلة (10-16)
 
 //--- آخر إشارة مؤكدة
 int      gLDir = 0;
-double   gLPrice = 0, gLSL = 0, gLT1 = 0, gLT2 = 0;
+double   gLPrice = 0, gLSL = 0, gLT1 = 0, gLT2 = 0, gLT3 = 0;   // v1.44: + هدف ثالث
 datetime gLTime = 0;
 
 //--- استراتيجية علي ماستر v6
 int      gAliDir = 0;                  // 1 شراء / -1 بيع / 0 محايد
 datetime gAliLastT = 0;                // وقت آخر شمعة أطلقت إشارة (حماية تكرار)
 int      gAliSigDir = 0;               // آخر إشارة علي: 1 / -1
-double   gAliEntry = 0, gAliSL = 0, gAliTP1 = 0, gAliTP2 = 0;
+double   gAliEntry = 0, gAliSL = 0, gAliTP1 = 0, gAliTP2 = 0, gAliTP3 = 0;   // v1.44: + هدف ثالث
 datetime gAliSigTime = 0;
 int      gAliTot = 0, gAliBuy = 0, gAliSell = 0;
 
@@ -319,6 +331,7 @@ datetime gLq4LastH4T = 0;              // وقت آخر شمعة 4H عولجت (
 
 //--- إحصائيات
 int      gSTot = 0, gSWin = 0, gSLoss = 0, gSBuy = 0, gSSell = 0;
+int      gSTP3 = 0;                    // v1.44: عدد الصفقات التي وصلت الهدف الثالث
 
 //--- هيكل نتيجة التقييم
 struct EvalOut
@@ -419,7 +432,9 @@ int OnInit()
       InpADXLen < 2 || InpDXYEMA < 2 || InpDivLook < 10 ||
       InpAsiaStart < 0 || InpAsiaStart > 23 ||
       InpAsiaEnd < 1 || InpAsiaEnd > 23 || InpAsiaEnd <= InpAsiaStart ||
-      InpADXMin < InpADXFlat)
+      InpADXMin < InpADXFlat ||
+      InpTP3_R <= 0.0 || InpAliTP3Pts < 0 ||        // v1.44: تحقق الأهداف الجديدة
+      InpRevWaitMin < 0 || InpRevWaitMin > 1440)
      {
       Print(ALI_TITLE, ": قيم مدخلات غير صالحة - راجع الإعدادات");
       return(INIT_PARAMETERS_INCORRECT);
@@ -1074,16 +1089,32 @@ void Evaluate(const int base, const int total,
    if(InpUseTrend && tr != -1) s2 = 0;
    e.bear = s2;
 
-   //--- 7ب) فلتر Premium/Discount: الشراء في النصف السفلي والبيع في العلوي
-   if(InpUsePD && (b > 0 || s2 > 0))
+   //--- 7ب) فلتر Premium/Discount + بوابة المنطقة الذهبية (v1.44)
+   //--- النطاق يُحسب مرة واحدة ويُستخدم للفلترين معاً (توفير حساب)
+   if((InpUsePD || InpGoldenEntry) && (b > 0 || s2 > 0))
      {
       DealRange dr;
       GetDealingRange(base, total, time, high, low, dr);
-      if(dr.valid)
+      if(InpUsePD && dr.valid)
         {
          double eq = 0.5 * (dr.hi + dr.lo);
          if(b > 0 && close[base] > eq)  b = 0;    // شراء في Premium = مرفوض
          if(s2 > 0 && close[base] < eq) s2 = 0;   // بيع في Discount = مرفوض
+        }
+      //--- v1.44: الدخول من المنطقة الذهبية فقط (فيبو 0.5 - 0.618)
+      //--- إغلاق شمعة الإشارة يجب أن يكون داخل منطقة التصحيح الذهبية تماماً
+      if(InpGoldenEntry)
+        {
+         if(!dr.valid) { b = 0; s2 = 0; }         // لا نطاق واضح = لا دخول
+         else
+           {
+            double grng = dr.hi - dr.lo;
+            double gzLo, gzHi;
+            if(dr.dir > 0) { gzLo = dr.hi - 0.618 * grng; gzHi = dr.hi - 0.500 * grng; }
+            else           { gzLo = dr.lo + 0.500 * grng; gzHi = dr.lo + 0.618 * grng; }
+            if(b  > 0 && (close[base] < gzLo || close[base] > gzHi)) b  = 0;
+            if(s2 > 0 && (close[base] < gzLo || close[base] > gzHi)) s2 = 0;
+           }
         }
      }
 
@@ -1151,7 +1182,7 @@ void Evaluate(const int base, const int total,
 //| حساب مستويات الدخول والستوب والأهداف                             |
 //+------------------------------------------------------------------+
 void CalcLevels(const int dir, const double entry, const double atr,
-                double &sl, double &tp1, double &tp2)
+                double &sl, double &tp1, double &tp2, double &tp3)   // v1.44: + هدف ثالث
   {
    double risk = atr * InpSL_ATR;
    if(risk <= 0) risk = 10.0 * gNP;
@@ -1160,12 +1191,14 @@ void CalcLevels(const int dir, const double entry, const double atr,
       sl  = entry - risk;
       tp1 = entry + risk * InpTP1_R;
       tp2 = entry + risk * InpTP2_R;
+      tp3 = entry + risk * InpTP3_R;
      }
    else
      {
       sl  = entry + risk;
       tp1 = entry - risk * InpTP1_R;
       tp2 = entry - risk * InpTP2_R;
+      tp3 = entry - risk * InpTP3_R;
      }
   }
 
@@ -1204,22 +1237,42 @@ bool AliBearCond(const int i, const double &open[], const double &high[],
    return(close[i] < open[i] && low[i] <= AliLL3(i, low));
   }
 
-//--- مستويات صفقة علي: TP1 = 1xATR ، TP2 = 2xATR ، SL = 1xATR (أو نقاط ثابتة)
+//--- مستويات صفقة علي: TP1 = 1xATR ، TP2 = 2xATR ، TP3 = 3xATR ، SL = 1xATR (أو نقاط ثابتة)
 void AliLevels(const int dir, const double entry, const double atr,
-               double &sl, double &tp1, double &tp2)
+               double &sl, double &tp1, double &tp2, double &tp3)   // v1.44: + هدف ثالث
   {
    if(InpAliUseATR && atr > 0)
      {
       tp1 = entry + dir * atr;
       tp2 = entry + dir * atr * 2.0;
+      tp3 = entry + dir * atr * 3.0;
       sl  = entry - dir * atr;
      }
    else
      {
       tp1 = entry + dir * InpAliTP1Pts * gNP;
       tp2 = entry + dir * InpAliTP2Pts * gNP;
+      tp3 = entry + dir * InpAliTP3Pts * gNP;
       sl  = entry - dir * InpAliSLPts  * gNP;
      }
+  }
+
+//+------------------------------------------------------------------+
+//| v1.44: منع الانعكاس السريع - هل الإشارة المعاكسة مسموحة الآن؟    |
+//| تعتمد وقت شمعة الإشارة لا TimeCurrent => ثابتة تاريخياً بلا إعادة رسم |
+//+------------------------------------------------------------------+
+bool RevWaitOK(const int dir, const datetime tBar)
+  {
+   if(InpRevWaitMin <= 0 || gLastSigDir == 0) return(true);
+   if(dir == gLastSigDir) return(true);                          // نفس الاتجاه مسموح
+   return((long)(tBar - gLastSigT) >= (long)InpRevWaitMin * 60); // المعاكس بعد انتهاء الانتظار
+  }
+
+bool AliRevWaitOK(const int dir, const datetime tBar)
+  {
+   if(InpRevWaitMin <= 0 || gAliLastSigDir == 0) return(true);
+   if(dir == gAliLastSigDir) return(true);
+   return((long)(tBar - gAliLastSigT) >= (long)InpRevWaitMin * 60);
   }
 
 //--- الشرط اللحظي على الشمعة الحالية (للعرض في اللوحة فقط)
@@ -1286,6 +1339,8 @@ void AliDrawSignal()
            "TP1 " + DoubleToString(gAliTP1, _Digits));
    AliLine(PREFIX + "A2", gAliSigTime, gAliTP2, t2, clrRed,    w,
            "TP2 " + DoubleToString(gAliTP2, _Digits));
+   AliLine(PREFIX + "A3", gAliSigTime, gAliTP3, t2, clrLimeGreen, w,   // v1.44
+           "TP3 " + DoubleToString(gAliTP3, _Digits));
    AliLine(PREFIX + "AS", gAliSigTime, gAliSL,  t2, clrYellow, w,
            "SL " + DoubleToString(gAliSL, _Digits));
   }
@@ -1457,11 +1512,12 @@ int OnCalculate(const int rates_total,
       zCount = 0; mzCount = 0; lqCount = 0; gTradeState = 0;
       gTsUse = -1; gTsSt = 0;   // v1.43: تصفير كاش الاتجاه (ملاحظة: عدادات التنبيه لا تُصفّر هنا لمنع التكرار بعد أي إعادة حساب)
       gAliDir = 0; gAliLastT = 0; gAliSigDir = 0; gAliSigTime = 0;
-      gAliEntry = 0; gAliSL = 0; gAliTP1 = 0; gAliTP2 = 0;
+      gAliEntry = 0; gAliSL = 0; gAliTP1 = 0; gAliTP2 = 0; gAliTP3 = 0;
       gAliTot = 0; gAliBuy = 0; gAliSell = 0;
       lq4Count = 0; gLiqCnt = 0; gLq4LastH4T = 0;
-      gLDir = 0; gLTime = 0; gLPrice = 0; gLSL = 0; gLT1 = 0; gLT2 = 0;
-      gSTot = 0; gSWin = 0; gSLoss = 0; gSBuy = 0; gSSell = 0;
+      gLastSigT = 0; gLastSigDir = 0; gAliLastSigT = 0; gAliLastSigDir = 0;   // v1.44
+      gLDir = 0; gLTime = 0; gLPrice = 0; gLSL = 0; gLT1 = 0; gLT2 = 0; gLT3 = 0;
+      gSTot = 0; gSWin = 0; gSLoss = 0; gSBuy = 0; gSSell = 0; gSTP3 = 0;
       limit = MathMin(rates_total - 60, InpMaxBars);
       //--- v1.38: حُذف الخروج المبكر (كان return(0) يمسح البافرات ثم يخرج
       //--- فيختفي كل شيء مع مدخلات MaxBars صغيرة) - كل دوال الحساب تتحقق
@@ -1525,26 +1581,28 @@ int OnCalculate(const int rates_total,
 
       if(e.dir > 0 && aBuyOK)
         {
-         if(closed && e.score >= InpMinScore)
+         if(closed && e.score >= InpMinScore && RevWaitOK(1, time[i]))   // v1.44: لا انعكاس قبل انتهاء الانتظار
            {
             BufBuy[i] = low[i] - off;
             gLDir = 1; gLTime = time[i]; gLPrice = close[i];
-            CalcLevels(1, close[i], atr, gLSL, gLT1, gLT2);
+            CalcLevels(1, close[i], atr, gLSL, gLT1, gLT2, gLT3);
+            gLastSigDir = 1; gLastSigT = time[i];   // v1.44: تحديث عداد منع الانعكاس
             gSTot++; gSBuy++;
-            if(i == 1) DoAlert(false, 1, close[i], gLSL, gLT1, gLT2, time[i]);   // v1.43: تنبيه
+            if(i == 1) DoAlert(false, 1, close[i], gLSL, gLT1, gLT2, gLT3, time[i]);
            }
          else if(!closed && InpProvisional && e.score >= InpMinScoreLive)
             BufBuyL[i] = low[i] - off;
         }
       else if(e.dir < 0 && aSellOK)
         {
-         if(closed && e.score >= InpMinScore)
+         if(closed && e.score >= InpMinScore && RevWaitOK(-1, time[i]))  // v1.44: لا انعكاس قبل انتهاء الانتظار
            {
             BufSell[i] = high[i] + off;
             gLDir = -1; gLTime = time[i]; gLPrice = close[i];
-            CalcLevels(-1, close[i], atr, gLSL, gLT1, gLT2);
+            CalcLevels(-1, close[i], atr, gLSL, gLT1, gLT2, gLT3);
+            gLastSigDir = -1; gLastSigT = time[i];  // v1.44: تحديث عداد منع الانعكاس
             gSTot++; gSSell++;
-            if(i == 1) DoAlert(false, -1, close[i], gLSL, gLT1, gLT2, time[i]);   // v1.43: تنبيه
+            if(i == 1) DoAlert(false, -1, close[i], gLSL, gLT1, gLT2, gLT3, time[i]);
            }
          else if(!closed && InpProvisional && e.score >= InpMinScoreLive)
             BufSellL[i] = high[i] + off;
@@ -1555,27 +1613,31 @@ int OnCalculate(const int rates_total,
       if(closed && InpAliMode == ALI_MODE_STAND && i + 3 <= rates_total - 1 &&
          time[i] != gAliLastT)
         {
-         if(AliBullCond(i, open, high, low, close) && gAliDir != 1)
+         if(AliBullCond(i, open, high, low, close) && gAliDir != 1 &&
+            AliRevWaitOK(1, time[i]))                     // v1.44: لا انعكاس قبل الانتظار
            {
             gAliDir = 1;  gAliLastT = time[i];
             BufAliB[i] = low[i] - (atr > 0 ? atr * 0.9 : 60.0 * gNP);
             gAliSigDir = 1;  gAliSigTime = time[i];  gAliEntry = close[i];
             AliLevels(1, close[i], (i < ArraySize(gATRA) ? gATRA[i] : 0.0),
-                      gAliSL, gAliTP1, gAliTP2);
+                      gAliSL, gAliTP1, gAliTP2, gAliTP3);
+            gAliLastSigDir = 1; gAliLastSigT = time[i];   // v1.44
             gAliTot++;  gAliBuy++;
             gLiqCnt = 0;
-            if(i == 1) DoAlert(true, 1, close[i], gAliSL, gAliTP1, gAliTP2, time[i]);   // v1.43
+            if(i == 1) DoAlert(true, 1, close[i], gAliSL, gAliTP1, gAliTP2, gAliTP3, time[i]);
            }
-         else if(AliBearCond(i, open, high, low, close) && gAliDir != -1)
+         else if(AliBearCond(i, open, high, low, close) && gAliDir != -1 &&
+                 AliRevWaitOK(-1, time[i]))               // v1.44: لا انعكاس قبل الانتظار
            {
             gAliDir = -1;  gAliLastT = time[i];
             BufAliS[i] = high[i] + (atr > 0 ? atr * 0.9 : 60.0 * gNP);
             gAliSigDir = -1;  gAliSigTime = time[i];  gAliEntry = close[i];
             AliLevels(-1, close[i], (i < ArraySize(gATRA) ? gATRA[i] : 0.0),
-                      gAliSL, gAliTP1, gAliTP2);
+                      gAliSL, gAliTP1, gAliTP2, gAliTP3);
+            gAliLastSigDir = -1; gAliLastSigT = time[i];  // v1.44
             gAliTot++;  gAliSell++;
             gLiqCnt = 0;
-            if(i == 1) DoAlert(true, -1, close[i], gAliSL, gAliTP1, gAliTP2, time[i]);   // v1.43
+            if(i == 1) DoAlert(true, -1, close[i], gAliSL, gAliTP1, gAliTP2, gAliTP3, time[i]);
            }
         }
 
@@ -1737,8 +1799,8 @@ void DrawLastSignals(const datetime &time[], const double &high[], const double 
 
       double atr = gATR[i];
       if(atr <= 0) continue;
-      double sl, tp1, tp2;
-      CalcLevels(dir, close[i], atr, sl, tp1, tp2);
+      double sl, tp1, tp2, tp3;
+      CalcLevels(dir, close[i], atr, sl, tp1, tp2, tp3);
 
       //--- حالة إدارة الصفقة (لأحدث إشارة فقط)
       int st = 0;
@@ -1748,8 +1810,10 @@ void DrawLastSignals(const datetime &time[], const double &high[], const double 
            {
             bool slHit = (dir > 0) ? (low[j] <= sl)   : (high[j] >= sl);
             bool t2Hit = (dir > 0) ? (high[j] >= tp2) : (low[j] <= tp2);
+            bool t3Hit = (dir > 0) ? (high[j] >= tp3) : (low[j] <= tp3);   // v1.44
             bool t1Hit = (dir > 0) ? (high[j] >= tp1) : (low[j] <= tp1);
             if(slHit) { st = -1; break; }
+            if(t3Hit) { st = 3;  break; }   // v1.44: اكتملت عند الهدف الثالث
             if(t2Hit) { st = 2;  break; }
             if(t1Hit) { st = 1;  break; }
            }
@@ -1770,6 +1834,8 @@ void DrawLastSignals(const datetime &time[], const double &high[], const double 
                 "TP1 " + DoubleToString(tp1, _Digits));
       DrawLevel(base + "2", t0, tp2, tE, tp2, clrGreen,
                 "TP2 " + DoubleToString(tp2, _Digits));
+      DrawLevel(base + "3", t0, tp3, tE, tp3, clrLimeGreen,   // v1.44: خط الهدف الثالث
+                "TP3 " + DoubleToString(tp3, _Digits));
      }
   }
 
@@ -1780,7 +1846,7 @@ void UpdateStats(const datetime &time[], const double &open[],
                  const double &high[], const double &low[],
                  const double &close[], const int total)
   {
-   gSTot = 0; gSWin = 0; gSLoss = 0; gSBuy = 0; gSSell = 0;
+   gSTot = 0; gSWin = 0; gSLoss = 0; gSBuy = 0; gSSell = 0; gSTP3 = 0;   // v1.44
    gRSum = 0;
    ArrayInitialize(gSesW, 0); ArrayInitialize(gSesL, 0);
    ArrayInitialize(gHrW, 0);  ArrayInitialize(gHrL, 0);
@@ -1796,8 +1862,8 @@ void UpdateStats(const datetime &time[], const double &open[],
 
       double atr = gATR[s];
       if(atr <= 0) continue;
-      double sl, tp1, tp2;
-      CalcLevels(dir, close[s], atr, sl, tp1, tp2);
+      double sl, tp1, tp2, tp3;
+      CalcLevels(dir, close[s], atr, sl, tp1, tp2, tp3);
       if(MathAbs(close[s] - sl) <= 0) continue;
 
       //--- v1.43: العدادات بعد اجتياز كل الفحوصات = أرقام اللوحة متوافقة دائماً
@@ -1813,38 +1879,34 @@ void UpdateStats(const datetime &time[], const double &open[],
       int jStart = s - 300;
       if(jStart < 0) jStart = 0;
 
+      //--- v1.44: النتيجة (TP1 أساس النجاح/الخسارة) + عداد وصول TP3
+      bool win = false;
       for(int j = jEnd; j >= jStart; j--)
         {
-         if(dir > 0)
+         bool slHit  = (dir > 0) ? (low[j] <= sl)   : (high[j] >= sl);
+         bool tp1Hit = (dir > 0) ? (high[j] >= tp1) : (low[j] <= tp1);
+         bool t3Hit  = (dir > 0) ? (high[j] >= tp3) : (low[j] <= tp3);
+         if(!win)
            {
-            bool slHit = (low[j] <= sl);
-            bool tpHit = (high[j] >= tp1);
-            if(slHit && tpHit)                              // v1.43: شمعة ملتبسة قابلة للضبط
+            if(slHit && tp1Hit)                         // v1.43: شمعة ملتبسة قابلة للضبط
               {
                if(AmbigLoss(open[j], sl, tp1))
-                 { gSLoss++; gRSum -= 1.0;      gSesL[ses]++; gHrL[dt.hour]++; }
-               else
-                 { gSWin++;  gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++; }
-               break;
+                 { gSLoss++; gRSum -= 1.0; gSesL[ses]++; gHrL[dt.hour]++; break; }
+               win = true;
+               gSWin++;  gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++;
               }
-            if(slHit)          { gSLoss++; gRSum -= 1.0;      gSesL[ses]++; gHrL[dt.hour]++; break; }
-            if(tpHit)          { gSWin++;  gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++; break; }
-           }
-         else
-           {
-            bool slHit = (high[j] >= sl);
-            bool tpHit = (low[j] <= tp1);
-            if(slHit && tpHit)                              // v1.43: شمعة ملتبسة قابلة للضبط
+            else if(slHit)                              // ستوب قبل الهدف = خسارة
               {
-               if(AmbigLoss(open[j], sl, tp1))
-                 { gSLoss++; gRSum -= 1.0;      gSesL[ses]++; gHrL[dt.hour]++; }
-               else
-                 { gSWin++;  gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++; }
+               gSLoss++; gRSum -= 1.0; gSesL[ses]++; gHrL[dt.hour]++;
                break;
               }
-            if(slHit)          { gSLoss++; gRSum -= 1.0;      gSesL[ses]++; gHrL[dt.hour]++; break; }
-            if(tpHit)          { gSWin++;  gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++; break; }
+            else if(tp1Hit)                             // الهدف الأول = نجاح
+              {
+               win = true;
+               gSWin++; gRSum += InpTP1_R; gSesW[ses]++; gHrW[dt.hour]++;
+              }
            }
+         if(win && t3Hit) { gSTP3++; break; }           // v1.44: وصول الهدف الثالث
         }
      }
   }
@@ -1883,7 +1945,7 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                          ? CORNER_RIGHT_UPPER : CORNER_LEFT_UPPER;
    bool rightSide = (cr == CORNER_RIGHT_UPPER);
 
-   int rows = 25;                      // v1.43+: صفوف علي + التعزيزات الأربعة
+   int rows = 27;                      // v1.44: + صف الدخول الذهبي + صف منع الانعكاس
    int fs   = InpFontSize;
    int lw   = MathMax(420, fs * 40);   // v1.43: عرض أوسع يمنع قطع أطول السطور
    int rh   = fs + 8;
@@ -2035,7 +2097,8 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                 adC, fs, cr, rightSide);
       DashLabel(11, y0 + 11 * rh, "ستوب علي: " + DoubleToString(gAliSL, _Digits) +
                 " | هدف1: " + DoubleToString(gAliTP1, _Digits) +
-                " | هدف2: " + DoubleToString(gAliTP2, _Digits),
+                " | هدف2: " + DoubleToString(gAliTP2, _Digits) +
+                " | هدف3: " + DoubleToString(gAliTP3, _Digits),
                 baseC, fs, cr, rightSide);
      }
    else
@@ -2044,7 +2107,7 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                 (InpAliMode == ALI_MODE_FILTER) ? "علي ماستر: فلتر تأكيد فقط - بلا إشارات مستقلة"
                                                 : "آخر إشارة علي: لا توجد بعد",
                 clrGray, fs, cr, rightSide);
-      DashLabel(11, y0 + 11 * rh, "ستوب علي: - | هدف1: - | هدف2: -", clrGray, fs, cr, rightSide);
+      DashLabel(11, y0 + 11 * rh, "ستوب علي: - | هدف1: - | هدف2: - | هدف3: -", clrGray, fs, cr, rightSide);
      }
 
    //--- سيولة فريم 4 ساعات (منطق علي ماستر)
@@ -2085,13 +2148,14 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                 " (" + IntegerToString(ba) + " شمعة)", dC, fs, cr, rightSide);
       DashLabel(14, y0 + 14 * rh, "ستوب: " + DoubleToString(gLSL, _Digits) +
                 " | هدف1: " + DoubleToString(gLT1, _Digits) +
-                " | هدف2: " + DoubleToString(gLT2, _Digits),
+                " | هدف2: " + DoubleToString(gLT2, _Digits) +
+                " | هدف3: " + DoubleToString(gLT3, _Digits),
                 baseC, fs, cr, rightSide);
      }
    else
      {
       DashLabel(13, y0 + 13 * rh, "آخر إشارة: لا توجد بعد", clrGray, fs, cr, rightSide);
-      DashLabel(14, y0 + 14 * rh, "ستوب: - | هدف1: - | هدف2: -", clrGray, fs, cr, rightSide);
+      DashLabel(14, y0 + 14 * rh, "ستوب: - | هدف1: - | هدف2: - | هدف3: -", clrGray, fs, cr, rightSide);
      }
 
    string mgTxt;
@@ -2112,7 +2176,8 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
    int wr = (gSWin + gSLoss > 0) ? gSWin * 100 / (gSWin + gSLoss) : 0;
    DashLabel(16, y0 + 16 * rh, "النتائج: " + IntegerToString(gSTot) +
              " إشارة | نجاح " + IntegerToString(wr) + "% | شراء " +
-             IntegerToString(gSBuy) + " | بيع " + IntegerToString(gSSell),
+             IntegerToString(gSBuy) + " | بيع " + IntegerToString(gSSell) +
+             " | TP3 " + IntegerToString(gSTP3),
              baseC, fs, cr, rightSide);
 
    double avgR = (gSWin + gSLoss > 0) ? gRSum / (double)(gSWin + gSLoss) : 0.0;
@@ -2196,6 +2261,33 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
       else             { asTxt = "النطاق الآسيوي: لا سحب مؤكد حالياً";              asC = baseC;      }
      }
    DashLabel(24, y0 + 24 * rh, asTxt, asC, fs, cr, rightSide);
+
+   //--- v1.44: حالة الدخول الذهبي
+   string gzTxt; color gzC;
+   if(!InpGoldenEntry) { gzTxt = "الدخول الذهبي: معطل - أي إشارة مؤكدة";       gzC = clrGray; }
+   else                { gzTxt = "الدخول الذهبي: مفعّل - إشارة داخل فيبو 0.5-0.618 فقط"; gzC = clrGoldenrod; }
+   DashLabel(25, y0 + 25 * rh, gzTxt, gzC, fs, cr, rightSide);
+
+   //--- v1.44: حالة منع الانعكاس السريع (الوقت المتبقي)
+   string rwTxt; color rwC;
+   if(InpRevWaitMin <= 0) { rwTxt = "منع الانعكاس: معطل"; rwC = clrGray; }
+   else
+     {
+      datetime ltT = (gLastSigT >= gAliLastSigT) ? gLastSigT : gAliLastSigT;
+      int      ltD = (gLastSigT >= gAliLastSigT) ? gLastSigDir : gAliLastSigDir;
+      long rem = 0;
+      if(ltD != 0 && ltT > 0)
+        {
+         long el   = (long)(TimeCurrent() - ltT);
+         long need = (long)InpRevWaitMin * 60;
+         if(el >= 0 && el < need) rem = need - el;
+        }
+      if(rem > 0)
+        { rwTxt = "منع الانعكاس: انتظر " + IntegerToString((int)((rem + 59) / 60)) + " دقيقة قبل الإشارة المعاكسة"; rwC = clrOrange; }
+      else
+        { rwTxt = "منع الانعكاس: مفعّل - بعد " + IntegerToString(InpRevWaitMin) + " دقيقة من آخر إشارة"; rwC = C'0,200,110'; }
+     }
+   DashLabel(26, y0 + 26 * rh, rwTxt, rwC, fs, cr, rightSide);
   }
 
 //+------------------------------------------------------------------+
@@ -2282,7 +2374,7 @@ void GetDealingRange(const int base, const int total, const datetime &time[],
      }
    if(hiP < 0 || loP < 0) return;
 
-   dr.hi = high[hiP];  dr.lo = low[loP];
+   dr.hi = high[hiP];  dr.lo = low[loP];   // v1.44: إصلاح خطأ تركيبي كان يمنع الترجمة
    dr.hiT = time[hiP]; dr.loT = time[loP];
    if(dr.hi <= dr.lo) return;
    dr.dir   = (dr.hiT > dr.loT) ? 1 : -1;
@@ -2391,8 +2483,8 @@ bool NewsBlockedAt(const datetime t)
 //| أثناء تحميل التاريخ، وحماية barTime تمنع التكرار في كل الحالات  |
 //+------------------------------------------------------------------+
 void DoAlert(const bool isAli, const int dir, const double price,
-             const double sl, const double tp1, const double tp2,
-             const datetime barTime)
+             const double sl, const double tp1, const double tp2, const double tp3,
+             const datetime barTime)   // v1.44: + هدف ثالث
   {
    if(isAli)
      {
@@ -2406,14 +2498,15 @@ void DoAlert(const bool isAli, const int dir, const double price,
       gLastAlertMain = barTime;
      }
 
-   string msg = StringFormat("%s %s %s %s: %s | SL %s | TP1 %s | TP2 %s",
-                             (isAli ? "علي ماستر" : "ALI"),
+   string msg = StringFormat("%s %s %s %s: %s | SL %s | TP1 %s | TP2 %s | TP3 %s",
+                             (isAli ? "علي ماستر" : "Ali Trader"),
                              _Symbol, TFToStr(_Period),
                              (dir > 0 ? "شراء" : "بيع"),
                              DoubleToString(price, _Digits),
                              DoubleToString(sl, _Digits),
                              DoubleToString(tp1, _Digits),
-                             DoubleToString(tp2, _Digits));
+                             DoubleToString(tp2, _Digits),
+                             DoubleToString(tp3, _Digits));
    if(InpAlertPopup) Alert(msg);
    if(InpAlertSound) PlaySound("alert.wav");
    if(InpAlertPush)  SendNotification(msg);
