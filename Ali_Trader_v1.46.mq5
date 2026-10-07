@@ -45,6 +45,8 @@
 //|        + الدخول من المنطقة الذهبية إلزامي + هدف ثالث TP3      |
 //|    10) v1.45: فلتر توافق الفريمات 15د/ساعة - لا إشارة عكس      |
 //|        الاتجاه الأعلى + صف لوحة يعرض اتجاه دقيقة/5د/15د/ساعة   |
+//|    11) v1.46: وضع صارم - لا إشارات إلا بتوافق الفريمين كاملاً   |
+//|        + فلترة إشارات علي ماستر + صف "المسموح الآن" في اللوحة  |
 //|                                                                  |
 //|  إعدادات مقترحة:                                                 |
 //|   - سكالبينج M1-M5 : MinScore=6 ، FVGMinPts=15-20 ،              |
@@ -66,12 +68,13 @@
 //+------------------------------------------------------------------+
 #property copyright   "Ali Trader - نظام إشارات الذهب الهجين"
 #property link        ""
-#property version     "1.45"
+#property version     "1.46"
 #property description "مؤشر دخول ذهب هجين: SMC + سيولة + اتجاه + حجم + جلسات"
 #property description "وضع هجين: إشارة لحظية تتحول لمؤكدة بعد الإغلاق (Non-Repaint)"
 #property description "مدمج: استراتيجية علي ماستر v6 (خطوط صفقة + سيولة 4H - بلا أسهم)"
 #property description "Ali Trader v1.44: منع الانعكاس السريع (انتظار 10 دقائق) + الدخول الذهبي + TP3"
 #property description "Ali Trader v1.45: فلتر توافق الفريمات 15د/ساعة - لا إشارة عكس الاتجاه الأعلى"
+#property description "Ali Trader v1.46: وضع صارم للتوافق + صف المسموح الآن + فلترة إشارات علي ماستر"
 #property description "v1.43: إصلاح سيولة 4H التاريخية + تنبيهات + فلتر أخبار موسع + تحقق مدخلات"
 #property description "v1.43+: فلتر الدولار DXY + دايفرجنس RSI + ADX + سحب آسيا"
 #property indicator_chart_window
@@ -246,6 +249,7 @@ input bool            InpUseMTFAlign   = true;         // فلتر توافق ا
 input ENUM_TIMEFRAMES InpMTFAlignTF1   = PERIOD_M15;   // فريم توافق أول (يفضل أعلى من الشارت)
 input ENUM_TIMEFRAMES InpMTFAlignTF2   = PERIOD_H1;    // فريم توافق ثاني (يفضل أعلى من الشارت)
 input int             InpMTFAlignEMA   = 50;           // فترة EMA لقياس اتجاه الفريم
+input bool            InpMTFStrict     = true;         // وضع صارم: توافق الفريمين كاملاً إلزامي (v1.46)
 input bool            InpMTFAlignBlock = true;         // حظر الإشارة المعاكسة للفريمين معاً
 
 //+------------------------------------------------------------------+
@@ -257,8 +261,8 @@ input bool            InpMTFAlignBlock = true;         // حظر الإشارة 
 string   gPrefix = "";                        // تتولد فريدة في OnInit مرة واحدة
 #define PREFIX   gPrefix
 #define ALI_VER_MAJOR 1                       // v1.43: مقارنة إصدار عامة لتنظيف النسخ القديمة
-#define ALI_VER_MINOR 45
-#define ALI_TITLE "Ali Trader v1.45"          // v1.45: اسم المؤشر (اللوحة + Shortname + الرسائل)
+#define ALI_VER_MINOR 46
+#define ALI_TITLE "Ali Trader v1.46"          // v1.46: اسم المؤشر (اللوحة + Shortname + الرسائل)
 #define MAXZ     80
 #define MAXMZ    40
 #define MAXLQ    24
@@ -772,6 +776,23 @@ int MTFTrendH(const int handle, const ENUM_TIMEFRAMES tf, const datetime t)
   }
 
 //+------------------------------------------------------------------+
+//| v1.46: البوابة الموحدة للاتجاه - هل شراء/بيع مسموح الآن؟         |
+//| نفس منطق فلتر التوافق في Evaluate وتستخدمها إشارات علي ماستر     |
+//| وصف "المسموح الآن" في اللوحة - فالكل يتكلم لغة واحدة             |
+//+------------------------------------------------------------------+
+bool MTFAllow(const int dir, const datetime t)
+  {
+   if(!InpUseMTFAlign) return(true);
+   int mtSum = MTFTrendH(hMTF1, InpMTFAlignTF1, t) +
+               MTFTrendH(hMTF2, InpMTFAlignTF2, t);
+   if(InpMTFStrict)
+      return((dir > 0) ? (mtSum >= 2) : (mtSum <= -2));   // صارم: توافق كامل إلزامي
+   if(mtSum >= 2)  return(dir > 0);                       // الفريمان صاعدان: شراء فقط
+   if(mtSum <= -2) return(dir < 0);                       // الفريمان هابطان: بيع فقط
+   return(true);                                          // تعارض/حياد: الاتجاهان مفتوحان
+  }
+
+//+------------------------------------------------------------------+
 //| v1.43+: فلتر الدولار DXY - الذهب يتحرك عكس الدولار غالباً        |
 //| dir=1 (شراء ذهب) يتوافق مع دولار هابط / dir=-1 مع دولار صاعد     |
 //| العائد: 1 توافق (+1) / 0 بيانات غير جاهزة / -1 تعارض صريح        |
@@ -1228,10 +1249,10 @@ void Evaluate(const int base, const int total,
       if(s2 < 0) s2 = 0;
      }
 
-   //--- 7هـ) v1.45: فلتر توافق الفريمات الأعلى (حل تعارض الدقائق مع الساعة)
-   //--- الفريمان الأعلى متفقان مع الاتجاه = +2 مكافأة
-   //--- الفريمان الأعلى متفقان ضد الاتجاه = حظر الإشارة (إن فعّلت الحظر)
-   //--- تعارضهما أو حياده = بلا مكافأة ولا حظر (أولوية للأعلى بلا قصر مفرط)
+   //--- 7هـ) v1.45/1.46: فلتر توافق الفريمات الأعلى (حل تعارض الدقائق مع الساعة)
+   //--- توافق الفريمان مع الاتجاه = +2 مكافأة
+   //--- الوضع الصارم (InpMTFStrict): بلا توافق كامل = لا إشارة إطلاقاً
+   //--- غير الصارم: حظر فقط لو الفريمان متفقان ضد الاتجاه (InpMTFAlignBlock)
    if(InpUseMTFAlign && (b > 0 || s2 > 0))
      {
       int m1 = MTFTrendH(hMTF1, InpMTFAlignTF1, time[base]);
@@ -1240,12 +1261,14 @@ void Evaluate(const int base, const int total,
       if(b > 0)
         {
          if(mtSum >= 2)                           b  += 2;   // توافق كامل مع الشراء
-         else if(mtSum <= -2 && InpMTFAlignBlock) b  = 0;    // الفريمان الأعلى ضد الشراء
+         else if(InpMTFStrict)                    b  = 0;    // v1.46: صارم - بلا توافق كامل = رفض
+         else if(mtSum <= -2 && InpMTFAlignBlock) b  = 0;    // حظر المعاكس فقط
         }
       if(s2 > 0)
         {
          if(mtSum <= -2)                           s2 += 2;  // توافق كامل مع البيع
-         else if(mtSum >= 2 && InpMTFAlignBlock)   s2 = 0;   // الفريمان الأعلى ضد البيع
+         else if(InpMTFStrict)                     s2 = 0;   // v1.46: صارم - بلا توافق كامل = رفض
+         else if(mtSum >= 2 && InpMTFAlignBlock)   s2 = 0;   // حظر المعاكس فقط
         }
       if(b  > gScoreMax) b  = gScoreMax;
       if(s2 > gScoreMax) s2 = gScoreMax;
@@ -1694,7 +1717,8 @@ int OnCalculate(const int rates_total,
          time[i] != gAliLastT)
         {
          if(AliBullCond(i, open, high, low, close) && gAliDir != 1 &&
-            AliRevWaitOK(1, time[i]))                     // v1.44: لا انعكاس قبل الانتظار
+            AliRevWaitOK(1, time[i]) &&                   // v1.44: لا انعكاس قبل الانتظار
+            MTFAllow(1, time[i]))                         // v1.46: باتفاق الفريمات الأعلى فقط
            {
             gAliDir = 1;  gAliLastT = time[i];
             BufAliB[i] = low[i] - (atr > 0 ? atr * 0.9 : 60.0 * gNP);
@@ -1707,7 +1731,8 @@ int OnCalculate(const int rates_total,
             if(i == 1) DoAlert(true, 1, close[i], gAliSL, gAliTP1, gAliTP2, gAliTP3, time[i]);
            }
          else if(AliBearCond(i, open, high, low, close) && gAliDir != -1 &&
-                 AliRevWaitOK(-1, time[i]))               // v1.44: لا انعكاس قبل الانتظار
+                 AliRevWaitOK(-1, time[i]) &&             // v1.44: لا انعكاس قبل الانتظار
+                 MTFAllow(-1, time[i]))                   // v1.46: باتفاق الفريمات الأعلى فقط
            {
             gAliDir = -1;  gAliLastT = time[i];
             BufAliS[i] = high[i] + (atr > 0 ? atr * 0.9 : 60.0 * gNP);
@@ -2025,7 +2050,7 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                          ? CORNER_RIGHT_UPPER : CORNER_LEFT_UPPER;
    bool rightSide = (cr == CORNER_RIGHT_UPPER);
 
-   int rows = 29;                      // v1.45: + صف اتجاهات الفريمات + صف فلتر التوافق
+   int rows = 30;                      // v1.46: + صف الاتجاه المسموح الآن
    int fs   = InpFontSize;
    int lw   = MathMax(420, fs * 40);   // v1.43: عرض أوسع يمنع قطع أطول السطور
    int rh   = fs + 8;
@@ -2397,12 +2422,27 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
       { mtfTxt = "فلتر توافق الفريمات: معطل"; mtfC = clrGray; }
    else
      {
-      mtfTxt = "فلتر توافق الفريمات: " + TFToStr(InpMTFAlignTF1) + "+" +
-               TFToStr(InpMTFAlignTF2) + " (+2 توافق)" +
-               (InpMTFAlignBlock ? " - حظر المعاكس" : " - بلا حظر");
+      if(InpMTFStrict)
+         mtfTxt = "فلتر توافق الفريمات: " + TFToStr(InpMTFAlignTF1) + "+" +
+                  TFToStr(InpMTFAlignTF2) + " - وضع صارم: توافق كامل إلزامي";
+      else
+         mtfTxt = "فلتر توافق الفريمات: " + TFToStr(InpMTFAlignTF1) + "+" +
+                  TFToStr(InpMTFAlignTF2) + " (+2 توافق)" +
+                  (InpMTFAlignBlock ? " - حظر المعاكس" : " - بلا حظر");
       mtfC = clrGoldenrod;
      }
    DashLabel(28, y0 + 28 * rh, mtfTxt, mtfC, fs, cr, rightSide);
+
+   //--- v1.46: الاتجاه المسموح الآن (يجيب فوراً: شراء/بيع/انتظر - نفس بوابة المحركين)
+   bool allowB = MTFAllow(1,  TimeCurrent());
+   bool allowS = MTFAllow(-1, TimeCurrent());
+   string alwTxt; color alwC;
+   if(!InpUseMTFAlign)       { alwTxt = "المسموح الآن: الاتجاهان - فلتر التوافق معطل";              alwC = clrGray;    }
+   else if(allowB && allowS) { alwTxt = "المسموح الآن: الاتجاهان (الوضع غير الصارم وتعارض)";        alwC = baseC;      }
+   else if(allowB)           { alwTxt = "المسموح الآن: شراء فقط - البيع مرفوض بفلتر الفريمات";       alwC = InpColBuy;  }
+   else if(allowS)           { alwTxt = "المسموح الآن: بيع فقط - الشراء مرفوض بفلتر الفريمات";       alwC = InpColSell; }
+   else                      { alwTxt = "المسموح الآن: لا إشارات - الفريمات متعارضة، انتظر التوافق"; alwC = clrOrange;  }
+   DashLabel(29, y0 + 29 * rh, alwTxt, alwC, fs, cr, rightSide);
   }
 
 //+------------------------------------------------------------------+
