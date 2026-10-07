@@ -244,12 +244,12 @@ input group "=== حماية الانعكاس والدخول الذهبي (v1.44)
 input int             InpRevWaitMin  = 10;     // انتظار قبل الإشارة المعاكسة (دقائق - 0 = تعطيل)
 input bool            InpGoldenEntry = true;   // الدخول من المنطقة الذهبية فقط (فيبو 0.5-0.618)
 
-input group "=== توافق الفريمات MTF (v1.45) ==="
+input group "=== فلتر اتجاه الفريمات الأعلى (التوافق + الوضع الصارم) ==="
 input bool            InpUseMTFAlign   = true;         // فلتر توافق الفريمات الأعلى (+2 توافق)
 input ENUM_TIMEFRAMES InpMTFAlignTF1   = PERIOD_M15;   // فريم توافق أول (يفضل أعلى من الشارت)
 input ENUM_TIMEFRAMES InpMTFAlignTF2   = PERIOD_H1;    // فريم توافق ثاني (يفضل أعلى من الشارت)
 input int             InpMTFAlignEMA   = 50;           // فترة EMA لقياس اتجاه الفريم
-input bool            InpMTFStrict     = true;         // وضع صارم: توافق الفريمين كاملاً إلزامي (v1.46)
+input bool            InpMTFStrict     = true;         // الوضع الصارم: مفيش إشارة غير لما فريمي التوافق يتفقوا مع الاتجاه (v1.46)
 input bool            InpMTFAlignBlock = true;         // حظر الإشارة المعاكسة للفريمين معاً
 
 //+------------------------------------------------------------------+
