@@ -28,6 +28,7 @@
 //|  بوابات إلزامية: الاتجاه + الجلسة + الحجم + نطاق ATR             |
 //|  مكافآت v1.43: +1 توافق الدولار DXY   +2 دايفرجنس RSI       |
 //|                 +1 ADX ترند صحي   +2 سحب النطاق الآسيوي     |
+//|  مكافأة v1.45: +2 توافق فريمي 15د وساعة + لوحة اتجاهات الفريمات |
 //|                                                                  |
 //|  التركيب:                                                        |
 //|   1) من المنصة اضغط F4 لفتح MetaEditor                           |
@@ -42,6 +43,8 @@
 //|        + سحب النطاق الآسيوي + سقف درجة ديناميكي + صفوف لوحة|
 //|     9) v1.44: حماية الانعكاس (انتظار قبل الإشارة المعاكسة)   |
 //|        + الدخول من المنطقة الذهبية إلزامي + هدف ثالث TP3      |
+//|    10) v1.45: فلتر توافق الفريمات 15د/ساعة - لا إشارة عكس      |
+//|        الاتجاه الأعلى + صف لوحة يعرض اتجاه دقيقة/5د/15د/ساعة   |
 //|                                                                  |
 //|  إعدادات مقترحة:                                                 |
 //|   - سكالبينج M1-M5 : MinScore=6 ، FVGMinPts=15-20 ،              |
@@ -63,11 +66,12 @@
 //+------------------------------------------------------------------+
 #property copyright   "Ali Trader - نظام إشارات الذهب الهجين"
 #property link        ""
-#property version     "1.44"
+#property version     "1.45"
 #property description "مؤشر دخول ذهب هجين: SMC + سيولة + اتجاه + حجم + جلسات"
 #property description "وضع هجين: إشارة لحظية تتحول لمؤكدة بعد الإغلاق (Non-Repaint)"
 #property description "مدمج: استراتيجية علي ماستر v6 (خطوط صفقة + سيولة 4H - بلا أسهم)"
 #property description "Ali Trader v1.44: منع الانعكاس السريع (انتظار 10 دقائق) + الدخول الذهبي + TP3"
+#property description "Ali Trader v1.45: فلتر توافق الفريمات 15د/ساعة - لا إشارة عكس الاتجاه الأعلى"
 #property description "v1.43: إصلاح سيولة 4H التاريخية + تنبيهات + فلتر أخبار موسع + تحقق مدخلات"
 #property description "v1.43+: فلتر الدولار DXY + دايفرجنس RSI + ADX + سحب آسيا"
 #property indicator_chart_window
@@ -237,6 +241,13 @@ input group "=== حماية الانعكاس والدخول الذهبي (v1.44)
 input int             InpRevWaitMin  = 10;     // انتظار قبل الإشارة المعاكسة (دقائق - 0 = تعطيل)
 input bool            InpGoldenEntry = true;   // الدخول من المنطقة الذهبية فقط (فيبو 0.5-0.618)
 
+input group "=== توافق الفريمات MTF (v1.45) ==="
+input bool            InpUseMTFAlign   = true;         // فلتر توافق الفريمات الأعلى (+2 توافق)
+input ENUM_TIMEFRAMES InpMTFAlignTF1   = PERIOD_M15;   // فريم توافق أول (يفضل أعلى من الشارت)
+input ENUM_TIMEFRAMES InpMTFAlignTF2   = PERIOD_H1;    // فريم توافق ثاني (يفضل أعلى من الشارت)
+input int             InpMTFAlignEMA   = 50;           // فترة EMA لقياس اتجاه الفريم
+input bool            InpMTFAlignBlock = true;         // حظر الإشارة المعاكسة للفريمين معاً
+
 //+------------------------------------------------------------------+
 //| المتغيرات العامة                                                 |
 //+------------------------------------------------------------------+
@@ -246,8 +257,8 @@ input bool            InpGoldenEntry = true;   // الدخول من المنطق
 string   gPrefix = "";                        // تتولد فريدة في OnInit مرة واحدة
 #define PREFIX   gPrefix
 #define ALI_VER_MAJOR 1                       // v1.43: مقارنة إصدار عامة لتنظيف النسخ القديمة
-#define ALI_VER_MINOR 44
-#define ALI_TITLE "Ali Trader v1.44"          // v1.44: اسم المؤشر (اللوحة + Shortname + الرسائل)
+#define ALI_VER_MINOR 45
+#define ALI_TITLE "Ali Trader v1.45"          // v1.45: اسم المؤشر (اللوحة + Shortname + الرسائل)
 #define MAXZ     80
 #define MAXMZ    40
 #define MAXLQ    24
@@ -261,6 +272,8 @@ int      hATRA = INVALID_HANDLE;      // ATR خاص باستراتيجية عل�
 int      hEMAF = INVALID_HANDLE, hEMAS = INVALID_HANDLE;
 int      hADX = INVALID_HANDLE;         // v1.43+: ADX جودة الترند
 int      hDXY = INVALID_HANDLE;         // v1.43+: EMA الدولار (DXY)
+int      hMTF1 = INVALID_HANDLE, hMTF2 = INVALID_HANDLE;   // v1.45: EMA فريمي التوافق
+int      hMTFV[4];                                          // v1.45: EMA فريمات العرض (دقيقة/5د/15د/ساعة)
 string   gDXYUsed = "";                 // v1.43+: رمز الدولار الذي نجح الربط معه
 ENUM_TIMEFRAMES gTF = PERIOD_H4;        // فريم الاتجاه الفعلي
 double   gNP   = 0.01;                 // النقطة المعادلة (بعد تعادل الخانات)
@@ -421,7 +434,8 @@ int OnInit()
 
    //--- v1.43+: سقف الدرجة الديناميكي حسب التعزيزات المفعلة (أساس 10 + مكافآت)
    gScoreMax = 10 + (InpUseDXY ? 1 : 0) + (InpUseADX ? 1 : 0) +
-               (InpUseDiv ? 2 : 0) + (InpUseAsia ? 2 : 0);
+               (InpUseDiv ? 2 : 0) + (InpUseAsia ? 2 : 0) +
+               (InpUseMTFAlign ? 2 : 0);   // v1.45: مكافأة توافق الفريمات (حتى 18)
 
    //--- v1.43: التحقق من صحة المدخلات (القيم المتطرفة تجعل المحرك بلا معنى)
    if(InpSwingLen < 1 || InpStructLook < 10 || InpVolPeriod < 2 ||
@@ -429,7 +443,7 @@ int OnInit()
       InpMinScore < 1 || InpMinScore > gScoreMax ||
       InpMinScoreLive < 1 || InpMinScoreLive > gScoreMax ||
       InpMaxBars < 100 ||
-      InpADXLen < 2 || InpDXYEMA < 2 || InpDivLook < 10 ||
+      InpADXLen < 2 || InpDXYEMA < 2 || InpMTFAlignEMA < 2 || InpDivLook < 10 ||
       InpAsiaStart < 0 || InpAsiaStart > 23 ||
       InpAsiaEnd < 1 || InpAsiaEnd > 23 || InpAsiaEnd <= InpAsiaStart ||
       InpADXMin < InpADXFlat ||
@@ -446,6 +460,18 @@ int OnInit()
    hEMAS = iMA(_Symbol, gTF, 200, 0, MODE_EMA, PRICE_CLOSE);
    hATRA = iATR(_Symbol, _Period, MathMax(2, InpAliAtrLen));
    hADX  = iADX(_Symbol, _Period, InpADXLen);
+
+   //--- v1.45: مقابض فريمي التوافق + فريمات العرض الأربعة (دقيقة/5د/15د/ساعة)
+   for(int mv = 0; mv < 4; mv++) hMTFV[mv] = INVALID_HANDLE;
+   if(InpUseMTFAlign)
+     {
+      hMTF1 = iMA(_Symbol, InpMTFAlignTF1, MathMax(2, InpMTFAlignEMA), 0, MODE_EMA, PRICE_CLOSE);
+      hMTF2 = iMA(_Symbol, InpMTFAlignTF2, MathMax(2, InpMTFAlignEMA), 0, MODE_EMA, PRICE_CLOSE);
+      hMTFV[0] = iMA(_Symbol, PERIOD_M1,  50, 0, MODE_EMA, PRICE_CLOSE);
+      hMTFV[1] = iMA(_Symbol, PERIOD_M5,  50, 0, MODE_EMA, PRICE_CLOSE);
+      hMTFV[2] = iMA(_Symbol, PERIOD_M15, 50, 0, MODE_EMA, PRICE_CLOSE);
+      hMTFV[3] = iMA(_Symbol, PERIOD_H1,  50, 0, MODE_EMA, PRICE_CLOSE);
+     }
 
    //--- v1.43+: ربط رمز الدولار (اسمه يختلف بين البروكرات - تجربة تلقائية)
    //--- إذا لم يتوفر أي رمز مناسب يتوقف الفلتر تلقائياً بسلاسة
@@ -474,6 +500,8 @@ int OnInit()
      }
    if(InpUseDXY && gDXYUsed == "")
       Print(ALI_TITLE, ": تنبيه - رمز الدولار غير متوفر لدى البروكر، فلتر DXY معطل تلقائياً");
+   if(InpUseMTFAlign && (InpMTFAlignTF1 <= _Period || InpMTFAlignTF2 <= _Period))
+      Print(ALI_TITLE, ": تنبيه - يفضل أن تكون فريمات التوافق أعلى من فريم الشارت لنتيجة صحيحة");
 
    ArraySetAsSeries(gATR, true);
    ArraySetAsSeries(gRSI, true);
@@ -513,6 +541,10 @@ void OnDeinit(const int reason)
    if(hATRA != INVALID_HANDLE) IndicatorRelease(hATRA);
    if(hADX  != INVALID_HANDLE) IndicatorRelease(hADX);   // v1.43+
    if(hDXY  != INVALID_HANDLE) IndicatorRelease(hDXY);   // v1.43+
+   if(hMTF1 != INVALID_HANDLE) IndicatorRelease(hMTF1);  // v1.45
+   if(hMTF2 != INVALID_HANDLE) IndicatorRelease(hMTF2);  // v1.45
+   for(int mv = 0; mv < 4; mv++)                          // v1.45
+      if(hMTFV[mv] != INVALID_HANDLE) IndicatorRelease(hMTFV[mv]);
    ChartRedraw();
   }
 //+------------------------------------------------------------------+
@@ -712,6 +744,31 @@ int TrendStateAt(const datetime t)
    gTsUse = use;
    gTsSt  = st;
    return(st);
+  }
+
+//+------------------------------------------------------------------+
+//| v1.45: اتجاه فريم معين عند وقت معين بإغلاق شمعة مغلقة فقط        |
+//| المقارنة: إغلاق آخر شمعة مغلقة على الفريم مقابل EMA الفريم       |
+//| (Non-Repaint: لا يستخدم شمعة قيد التكوين أبداً)                  |
+//| العائد: 1 صاعد / -1 هابط / 0 بيانات غير جاهزة                    |
+//+------------------------------------------------------------------+
+int MTFTrendH(const int handle, const ENUM_TIMEFRAMES tf, const datetime t)
+  {
+   if(handle == INVALID_HANDLE) return(0);
+   int tot = iBars(_Symbol, tf);
+   if(tot < 5) return(0);
+   int sh = iBarShift(_Symbol, tf, t, false);
+   if(sh < 0) sh = 0;
+   int use = sh + 1;                       // آخر شمعة مغلقة على الفريم
+   if(use > tot - 2) use = tot - 2;
+   if(use < 1) return(0);
+   double em[1];
+   if(CopyBuffer(handle, 0, use, 1, em) < 1) return(0);
+   double c = iClose(_Symbol, tf, use);
+   if(c <= 0) return(0);
+   if(c > em[0]) return(1);
+   if(c < em[0]) return(-1);
+   return(0);
   }
 
 //+------------------------------------------------------------------+
@@ -1169,6 +1226,29 @@ void Evaluate(const int base, const int total,
       if(s2 > gScoreMax) s2 = gScoreMax;
       if(b  < 0) b  = 0;
       if(s2 < 0) s2 = 0;
+     }
+
+   //--- 7هـ) v1.45: فلتر توافق الفريمات الأعلى (حل تعارض الدقائق مع الساعة)
+   //--- الفريمان الأعلى متفقان مع الاتجاه = +2 مكافأة
+   //--- الفريمان الأعلى متفقان ضد الاتجاه = حظر الإشارة (إن فعّلت الحظر)
+   //--- تعارضهما أو حياده = بلا مكافأة ولا حظر (أولوية للأعلى بلا قصر مفرط)
+   if(InpUseMTFAlign && (b > 0 || s2 > 0))
+     {
+      int m1 = MTFTrendH(hMTF1, InpMTFAlignTF1, time[base]);
+      int m2 = MTFTrendH(hMTF2, InpMTFAlignTF2, time[base]);
+      int mtSum = m1 + m2;
+      if(b > 0)
+        {
+         if(mtSum >= 2)                           b  += 2;   // توافق كامل مع الشراء
+         else if(mtSum <= -2 && InpMTFAlignBlock) b  = 0;    // الفريمان الأعلى ضد الشراء
+        }
+      if(s2 > 0)
+        {
+         if(mtSum <= -2)                           s2 += 2;  // توافق كامل مع البيع
+         else if(mtSum >= 2 && InpMTFAlignBlock)   s2 = 0;   // الفريمان الأعلى ضد البيع
+        }
+      if(b  > gScoreMax) b  = gScoreMax;
+      if(s2 > gScoreMax) s2 = gScoreMax;
      }
 
    //--- 8) القرار
@@ -1945,7 +2025,7 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
                          ? CORNER_RIGHT_UPPER : CORNER_LEFT_UPPER;
    bool rightSide = (cr == CORNER_RIGHT_UPPER);
 
-   int rows = 27;                      // v1.44: + صف الدخول الذهبي + صف منع الانعكاس
+   int rows = 29;                      // v1.45: + صف اتجاهات الفريمات + صف فلتر التوافق
    int fs   = InpFontSize;
    int lw   = MathMax(420, fs * 40);   // v1.43: عرض أوسع يمنع قطع أطول السطور
    int rh   = fs + 8;
@@ -2288,6 +2368,41 @@ void DrawDash(const datetime &time[], const double &high[], const double &low[],
         { rwTxt = "منع الانعكاس: مفعّل - بعد " + IntegerToString(InpRevWaitMin) + " دقيقة من آخر إشارة"; rwC = C'0,200,110'; }
      }
    DashLabel(26, y0 + 26 * rh, rwTxt, rwC, fs, cr, rightSide);
+
+   //--- v1.45: اتجاهات الفريمات الأربعة لحظياً (حل حيرة تعارض الفريمات)
+   string vnm[4] = {"دقيقة", "5د", "15د", "ساعة"};
+   ENUM_TIMEFRAMES vtf[4] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1};
+   int  vAgree = 0;
+   bool vReady = false;
+   string fTxt = "";
+   for(int vk = 0; vk < 4; vk++)
+     {
+      int vd = MTFTrendH(hMTFV[vk], vtf[vk], TimeCurrent());
+      vAgree += vd;
+      if(vd != 0) vReady = true;
+      fTxt += vnm[vk] + " " + ((vd > 0) ? "▲" : (vd < 0) ? "▼" : "—") +
+              ((vk < 3) ? " | " : "");
+     }
+   string mtfDirTxt; color mtfDirC;
+   if(!InpUseMTFAlign)   { mtfDirTxt = "فريمات: " + fTxt;                                    mtfDirC = baseC;        }
+   else if(!vReady)      { mtfDirTxt = "فريمات: بيانات غير جاهزة";                            mtfDirC = clrGray;      }
+   else if(vAgree >= 2)  { mtfDirTxt = "فريمات: " + fTxt + " => توافق صاعد";                  mtfDirC = C'0,200,110'; }
+   else if(vAgree <= -2) { mtfDirTxt = "فريمات: " + fTxt + " => توافق هابط";                  mtfDirC = C'255,90,90'; }
+   else                  { mtfDirTxt = "فريمات: " + fTxt + " => تعارض - التزم بالفريم الأعلى"; mtfDirC = clrOrange;    }
+   DashLabel(27, y0 + 27 * rh, mtfDirTxt, mtfDirC, fs, cr, rightSide);
+
+   //--- v1.45: حالة فلتر توافق الفريمات
+   string mtfTxt; color mtfC;
+   if(!InpUseMTFAlign)
+      { mtfTxt = "فلتر توافق الفريمات: معطل"; mtfC = clrGray; }
+   else
+     {
+      mtfTxt = "فلتر توافق الفريمات: " + TFToStr(InpMTFAlignTF1) + "+" +
+               TFToStr(InpMTFAlignTF2) + " (+2 توافق)" +
+               (InpMTFAlignBlock ? " - حظر المعاكس" : " - بلا حظر");
+      mtfC = clrGoldenrod;
+     }
+   DashLabel(28, y0 + 28 * rh, mtfTxt, mtfC, fs, cr, rightSide);
   }
 
 //+------------------------------------------------------------------+
