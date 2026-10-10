@@ -16,7 +16,10 @@
 //|   1) حمّل Ali_Trader_v1.47.mq5 واضغط Compile في MQL5\Indicators |
 //|   2) حمّل هذا الملف واضغط Compile في MQL5\Experts                |
 //|   3) اسحب Ali Trader EA على شارت XAUUSD (نفس فريم المؤشر)        |
-//|   4) فعّل زر "التداول الآلي" الأخضر من الشريط العلوي             |
+//|   4) v1.01: اسحب مؤشر Ali Trader على نفس الشارت لرؤية خطوطه      |
+//|      وإشاراته - البوت يقرأ المؤشر الظاهر على الشارت تلقائياً      |
+//|      (لو مش موجود بيشتغل بخفاء ويعلّمك في لوحة الحالة)           |
+//|   5) فعّل زر "التداول الآلي" الأخضر من الشريط العلوي             |
 //|                                                                  |
 //|  ملاحظات مهمة:                                                   |
 //|   - البوت يستدعي المؤشر بإعداداته الافتراضية (الوضع الصارم مفعّل)|
@@ -30,8 +33,9 @@
 //+------------------------------------------------------------------+
 #property copyright   "Ali Trader EA - بوت التداول التلقائي"
 #property link        ""
-#property version     "1.00"
-#property description "بوت تداول تلقائي يقرأ إشارات مؤشر Ali Trader v1.47 عبر iCustom"
+#property version     "1.01"
+#property description "بوت تداول تلقائي يقرأ إشارات مؤشر Ali Trader عبر iCustom"
+#property description "v1.01: يقرأ المؤشر الظاهر على الشارت (ChartIndicatorGet) - اللي تشوفه هو اللي يتداول عليه"
 #property description "لوت ثابت أو نسبة مخاطرة + فلتر سبريد + رقم سحري + تعادل + تريلينج"
 #property description "إغلاق جزئي + إغلاق عند إشارة معاكسة + إشعارات موبايل"
 
@@ -110,6 +114,9 @@ input bool            InpShowInfo     = true;   // لوحة حالة على ال
 //+------------------------------------------------------------------+
 CTrade    trade;
 int       hInd = INVALID_HANDLE;     // مقبض مؤشر Ali Trader
+bool      gOwnHandle = false;        // صح = فتحناه بـ iCustom (نسخة خفية نملكها ونحررها)
+bool      gHiddenCopy = false;       // صح = لا يوجد مؤشر ظاهر على الشارت
+string    gVisName = "";             // اسم المؤشر الظاهر المتصل به
 datetime  gLastBarTime = 0;          // وقت آخر شمعة (كشف شمعة جديدة)
 bool      gFirstCall  = true;        // أول تيك بعد الإرفاق (تجاهل شمعة قديمة)
 datetime  gLastTradeBar = 0;         // آخر شمعة فتحنا فيها صفقة
@@ -179,13 +186,31 @@ int OnInit()
    if(InpRiskPct > 10)
       Print("Ali Trader EA: تحذير - مخاطرة ", InpRiskPct, "% عالية جداً للذهب");
 
-   //--- فتح المؤشر: يجب أن يكون مُصرّفاً في MQL5\Indicators أولاً
-   hInd = iCustom(_Symbol, _Period, InpIndName);
-   if(hInd == INVALID_HANDLE)
+   //--- v1.01: أولوية للمؤشر الظاهر على الشارت (اللي المستخدم شايفه بإعداداته)
+   //--- لو مش موجود: نسخة خفية iCustom بالإعدادات الافتراضية
+   string visName = FindChartAli();
+   if(visName != "")
      {
-      Alert("Ali Trader EA: فشل فتح المؤشر \"", InpIndName,
-            "\" - حمّل Ali_Trader_v1.47.mq5 واضغط Compile في مجلد Indicators ثم أعد إرفاق البوت");
-      return(INIT_FAILED);
+      hInd = ChartIndicatorGet(0, 0, visName);
+      gOwnHandle = false;
+      gHiddenCopy = false;
+      gVisName = visName;
+      Print("Ali Trader EA: تم الربط بالمؤشر الظاهر على الشارت: ", visName);
+     }
+   else
+     {
+      hInd = iCustom(_Symbol, _Period, InpIndName);
+      gOwnHandle = true;
+      gHiddenCopy = true;
+      gVisName = "";
+      if(hInd == INVALID_HANDLE)
+        {
+         Alert("Ali Trader EA: فشل فتح المؤشر [", InpIndName,
+               "] - حمّل Ali_Trader_v1.47.mq5 واضغط Compile في مجلد Indicators ثم أعد إرفاق البوت");
+         return(INIT_FAILED);
+        }
+      Print("Ali Trader EA: لا يوجد مؤشر Ali Trader على الشارت - يعمل البوت بنسخة خفية بالإعدادات الافتراضية");
+      Print("Ali Trader EA: نصيحة - اسحب مؤشر Ali Trader على نفس الشارت لرؤية الإشارات والخطوط (البوت سيقرأه تلقائياً)");
      }
 
    gFirstCall = true;
@@ -195,7 +220,8 @@ int OnInit()
    Print("Ali Trader EA جاهز - ", _Symbol, " فريم ", EnumToString(_Period),
          " | مصدر الإشارة: ", EnumToString(InpSource),
          " | الرقم السحري: ", InpMagic);
-   Print("Ali Trader EA: المؤشر يعمل بإعداداته الافتراضية - لتغييرها عدّل القيم الافتراضية داخل ملف المؤشر وأعد Compile");
+   if(gHiddenCopy)
+      Print("Ali Trader EA: النسخة الخفية تعمل بإعدادات المؤشر الافتراضية - لتغييرها عدّل القيم الافتراضية داخل ملف المؤشر وأعد Compile");
    return(INIT_SUCCEEDED);
   }
 
@@ -204,11 +230,11 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(hInd != INVALID_HANDLE)
-     {
+   //--- نحرر المقبض فقط لو نسخة iCustom الخاصة بنا
+   //--- (تحرير مقبض ChartIndicatorGet قد يزيل المؤشر الظاهر من الشارت)
+   if(hInd != INVALID_HANDLE && gOwnHandle)
       IndicatorRelease(hInd);
-      hInd = INVALID_HANDLE;
-     }
+   hInd = INVALID_HANDLE;
    Comment("");
   }
 
@@ -245,6 +271,9 @@ void OnTick()
 
    //--- الإشارات تُفحص مرة واحدة عند فتح كل شمعة جديدة
    if(!IsNewBar()) return;
+
+   //--- v1.01: لو المستخدم سحب المؤشر على الشارت بعد تشغيل البوت - اربطه تلقائياً
+   EnsureIndicatorMode();
 
    int    dir = 0, engine = -1;
    double sl = 0, tp1 = 0, tp2 = 0, tp3 = 0;
@@ -372,6 +401,42 @@ void OnTick()
    else
       Print("Ali EA: فشل فتح الصفقة - كود ", rc, " (", trade.ResultRetcodeDescription(), ")");
   }
+//+------------------------------------------------------------------+
+//| v1.01: البحث عن مؤشر Ali Trader الظاهر على نافذة الشارت الرئيسية  |
+//+------------------------------------------------------------------+
+string FindChartAli()
+  {
+   int total = ChartIndicatorsTotal(0, 0);
+   for(int i = 0; i < total; i++)
+     {
+      string nm = ChartIndicatorName(0, 0, i);
+      if(StringFind(nm, "Ali Trader") == 0)
+         return(nm);
+     }
+   return("");
+  }
+
+//+------------------------------------------------------------------+
+//| v1.01: لو البوت يعمل بنسخة خفية وظهر المؤشر على الشارت - اربطه    |
+//+------------------------------------------------------------------+
+void EnsureIndicatorMode()
+  {
+   if(!gHiddenCopy || hInd == INVALID_HANDLE) return;
+   string nm = FindChartAli();
+   if(nm == "" || nm == gVisName) return;
+   int h = ChartIndicatorGet(0, 0, nm);
+   if(h == INVALID_HANDLE) return;
+   IndicatorRelease(hInd);          // نسخة iCustom الخاصة بنا - نملكها ونحررها بأمان
+   hInd = h;
+   gOwnHandle = false;
+   gHiddenCopy = false;
+   gVisName = nm;
+   gDataWarned = false;
+   gIndOldWarned = false;
+   Print("Ali Trader EA: تم الربط تلقائياً بالمؤشر الظاهر على الشارت: ", nm,
+         " - اللي تشوفه هو اللي يتداول عليه ✓");
+  }
+
 //+------------------------------------------------------------------+
 //| قراءة إشارة آخر شمعة مغلقة من بافرات المؤشر                       |
 //+------------------------------------------------------------------+
@@ -664,8 +729,10 @@ void UpdatePanel()
    double spread = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
    bool autoOK = (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) != 0 &&
                   MQLInfoInteger(MQL_TRADE_ALLOWED) != 0);
-   string txt = "Ali Trader EA v1.00"
-              + "\nالمؤشر: " + InpIndName
+   string txt = "Ali Trader EA v1.01 - " + _Symbol + ", " + EnumToString(_Period)
+              + "\nالمؤشر: " + (gHiddenCopy
+                 ? "شغال مخفي - اسحب مؤشر Ali Trader على الشارت عشان تشوف إشاراته وخطوطه"
+                 : "ظاهر على الشارت ✓ (" + gVisName + ")")
               + "\nالحالة: " + (autoOK ? "التداول الآلي شغال ✓" : "التداول الآلي مقفول - فعّل زر AutoTrading الأخضر")
               + "\nالصفقات المفتوحة: " + IntegerToString(CountPositions()) + " / " + IntegerToString(InpMaxPos)
               + "\nصفقات اليوم: " + IntegerToString(TodayTrades())
