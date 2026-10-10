@@ -47,6 +47,8 @@
 //|        الاتجاه الأعلى + صف لوحة يعرض اتجاه دقيقة/5د/15د/ساعة   |
 //|    11) v1.46: وضع صارم - لا إشارات إلا بتوافق الفريمين كاملاً   |
 //|        + فلترة إشارات علي ماستر + صف "المسموح الآن" في اللوحة  |
+//|    12) v1.47: بافرات ستوب وأهداف (8-11) للبوتات عبر iCustom      |
+//|        + Ali Trader EA يفتح الصفقات تلقائياً من إشارات المؤشر     |
 //|                                                                  |
 //|  إعدادات مقترحة:                                                 |
 //|   - سكالبينج M1-M5 : MinScore=6 ، FVGMinPts=15-20 ،              |
@@ -68,17 +70,18 @@
 //+------------------------------------------------------------------+
 #property copyright   "Ali Trader - نظام إشارات الذهب الهجين"
 #property link        ""
-#property version     "1.46"
+#property version     "1.47"
 #property description "مؤشر دخول ذهب هجين: SMC + سيولة + اتجاه + حجم + جلسات"
 #property description "وضع هجين: إشارة لحظية تتحول لمؤكدة بعد الإغلاق (Non-Repaint)"
 #property description "مدمج: استراتيجية علي ماستر v6 (خطوط صفقة + سيولة 4H - بلا أسهم)"
 #property description "Ali Trader v1.44: منع الانعكاس السريع (انتظار 10 دقائق) + الدخول الذهبي + TP3"
 #property description "Ali Trader v1.45: فلتر توافق الفريمات 15د/ساعة - لا إشارة عكس الاتجاه الأعلى"
 #property description "Ali Trader v1.46: وضع صارم للتوافق + صف المسموح الآن + فلترة إشارات علي ماستر"
+#property description "Ali Trader v1.47: بافرات SL/TP1/TP2/TP3 للبوتات + دعم كامل لـ Ali Trader EA"
 #property description "v1.43: إصلاح سيولة 4H التاريخية + تنبيهات + فلتر أخبار موسع + تحقق مدخلات"
 #property description "v1.43+: فلتر الدولار DXY + دايفرجنس RSI + ADX + سحب آسيا"
 #property indicator_chart_window
-#property indicator_buffers 8
+#property indicator_buffers 12
 #property indicator_plots   8
 
 //--- Plot 0: إشارة شراء مؤكدة (v1.41: بلا سهم على الشارت - بيانات للإحصائيات فقط)
@@ -261,8 +264,8 @@ input bool            InpMTFAlignBlock = true;         // حظر الإشارة 
 string   gPrefix = "";                        // تتولد فريدة في OnInit مرة واحدة
 #define PREFIX   gPrefix
 #define ALI_VER_MAJOR 1                       // v1.43: مقارنة إصدار عامة لتنظيف النسخ القديمة
-#define ALI_VER_MINOR 46
-#define ALI_TITLE "Ali Trader v1.46"          // v1.46: اسم المؤشر (اللوحة + Shortname + الرسائل)
+#define ALI_VER_MINOR 47
+#define ALI_TITLE "Ali Trader v1.47"          // v1.47: اسم المؤشر (اللوحة + Shortname + الرسائل)
 #define MAXZ     80
 #define MAXMZ    40
 #define MAXLQ    24
@@ -270,6 +273,9 @@ string   gPrefix = "";                        // تتولد فريدة في OnIn
 
 double   BufBuy[], BufSell[], BufBuyL[], BufSellL[], BufScore[], BufDir[];
 double   BufAliB[], BufAliS[];         // أسهم علي ماستر (شراء/بيع)
+//--- v1.47: بافرات البوت (INDICATOR_CALCULATIONS - مخفية عن نافذة البيانات)
+//--- تُقرأ عبر iCustom: 8=ستوب الإشارة ، 9=هدف أول ، 10=هدف ثاني ، 11=هدف ثالث
+double   BufSigSL[], BufSigTP1[], BufSigTP2[], BufSigTP3[];
 
 int      hATR = INVALID_HANDLE, hRSI = INVALID_HANDLE;
 int      hATRA = INVALID_HANDLE;      // ATR خاص باستراتيجية علي ماستر
@@ -401,6 +407,11 @@ int OnInit()
    SetIndexBuffer(5, BufDir,   INDICATOR_DATA);
    SetIndexBuffer(6, BufAliB,  INDICATOR_DATA);
    SetIndexBuffer(7, BufAliS,  INDICATOR_DATA);
+   //--- v1.47: بافرات البوت - محسوبة فقط (لا plots) لكن iCustom يقرأها
+   SetIndexBuffer(8, BufSigSL,  INDICATOR_CALCULATIONS);
+   SetIndexBuffer(9, BufSigTP1, INDICATOR_CALCULATIONS);
+   SetIndexBuffer(10, BufSigTP2, INDICATOR_CALCULATIONS);
+   SetIndexBuffer(11, BufSigTP3, INDICATOR_CALCULATIONS);
 
    //--- إصلاح v1.35 الجذري: البافرات تُفهرس كسلسلة (0 = أحدث شمعة)
    //--- لتطابق اتجاه الحلقة الرئيسية والمصفوفات - بدون هذا ترسم الأسهم
@@ -409,6 +420,8 @@ int OnInit()
    ArraySetAsSeries(BufBuyL, true);   ArraySetAsSeries(BufSellL, true);
    ArraySetAsSeries(BufScore, true);  ArraySetAsSeries(BufDir, true);
    ArraySetAsSeries(BufAliB, true);   ArraySetAsSeries(BufAliS, true);
+   ArraySetAsSeries(BufSigSL, true);  ArraySetAsSeries(BufSigTP1, true);
+   ArraySetAsSeries(BufSigTP2, true); ArraySetAsSeries(BufSigTP3, true);
 
    //--- v1.41: الأسهم محذوفة من الشارت (كل الـ plots DRAW_NONE) - البافرات
    //--- تُملأ فقط كمصدر بيانات لإحصائيات اللوحة، فإعدادات PLOT_ARROW لاغية الآن
@@ -1610,6 +1623,10 @@ int OnCalculate(const int rates_total,
       ArrayInitialize(BufDir,  EMPTY_VALUE);
       ArrayInitialize(BufAliB, EMPTY_VALUE);
       ArrayInitialize(BufAliS, EMPTY_VALUE);
+      ArrayInitialize(BufSigSL, EMPTY_VALUE);   // v1.47: بافرات البوت
+      ArrayInitialize(BufSigTP1, EMPTY_VALUE);
+      ArrayInitialize(BufSigTP2, EMPTY_VALUE);
+      ArrayInitialize(BufSigTP3, EMPTY_VALUE);
       //--- v1.37: أُلغي المسح الشامل هنا (كان آخر سبب لاختفاء كل الرسم عند
       //--- أي إعادة حساب) - كل دالة رسم تمسح بادئتها الخاصة فقط قبل إعادة البناء
       zCount = 0; mzCount = 0; lqCount = 0; gTradeState = 0;
@@ -1645,6 +1662,8 @@ int OnCalculate(const int rates_total,
       BufBuy[i]  = EMPTY_VALUE;  BufSell[i]  = EMPTY_VALUE;
       BufBuyL[i] = EMPTY_VALUE;  BufSellL[i] = EMPTY_VALUE;
       BufAliB[i] = EMPTY_VALUE;  BufAliS[i]  = EMPTY_VALUE;
+      BufSigSL[i] = EMPTY_VALUE; BufSigTP1[i] = EMPTY_VALUE;   // v1.47
+      BufSigTP2[i] = EMPTY_VALUE; BufSigTP3[i] = EMPTY_VALUE;
 
       if(closed)
         {
@@ -1689,6 +1708,8 @@ int OnCalculate(const int rates_total,
             BufBuy[i] = low[i] - off;
             gLDir = 1; gLTime = time[i]; gLPrice = close[i];
             CalcLevels(1, close[i], atr, gLSL, gLT1, gLT2, gLT3);
+            BufSigSL[i] = gLSL; BufSigTP1[i] = gLT1;               // v1.47: للبوت
+            BufSigTP2[i] = gLT2; BufSigTP3[i] = gLT3;
             gLastSigDir = 1; gLastSigT = time[i];   // v1.44: تحديث عداد منع الانعكاس
             gSTot++; gSBuy++;
             if(i == 1) DoAlert(false, 1, close[i], gLSL, gLT1, gLT2, gLT3, time[i]);
@@ -1703,6 +1724,8 @@ int OnCalculate(const int rates_total,
             BufSell[i] = high[i] + off;
             gLDir = -1; gLTime = time[i]; gLPrice = close[i];
             CalcLevels(-1, close[i], atr, gLSL, gLT1, gLT2, gLT3);
+            BufSigSL[i] = gLSL; BufSigTP1[i] = gLT1;               // v1.47: للبوت
+            BufSigTP2[i] = gLT2; BufSigTP3[i] = gLT3;
             gLastSigDir = -1; gLastSigT = time[i];  // v1.44: تحديث عداد منع الانعكاس
             gSTot++; gSSell++;
             if(i == 1) DoAlert(false, -1, close[i], gLSL, gLT1, gLT2, gLT3, time[i]);
@@ -1725,6 +1748,8 @@ int OnCalculate(const int rates_total,
             gAliSigDir = 1;  gAliSigTime = time[i];  gAliEntry = close[i];
             AliLevels(1, close[i], (i < ArraySize(gATRA) ? gATRA[i] : 0.0),
                       gAliSL, gAliTP1, gAliTP2, gAliTP3);
+            BufSigSL[i] = gAliSL; BufSigTP1[i] = gAliTP1;          // v1.47: للبوت
+            BufSigTP2[i] = gAliTP2; BufSigTP3[i] = gAliTP3;
             gAliLastSigDir = 1; gAliLastSigT = time[i];   // v1.44
             gAliTot++;  gAliBuy++;
             gLiqCnt = 0;
@@ -1739,6 +1764,8 @@ int OnCalculate(const int rates_total,
             gAliSigDir = -1;  gAliSigTime = time[i];  gAliEntry = close[i];
             AliLevels(-1, close[i], (i < ArraySize(gATRA) ? gATRA[i] : 0.0),
                       gAliSL, gAliTP1, gAliTP2, gAliTP3);
+            BufSigSL[i] = gAliSL; BufSigTP1[i] = gAliTP1;          // v1.47: للبوت
+            BufSigTP2[i] = gAliTP2; BufSigTP3[i] = gAliTP3;
             gAliLastSigDir = -1; gAliLastSigT = time[i];  // v1.44
             gAliTot++;  gAliSell++;
             gLiqCnt = 0;
